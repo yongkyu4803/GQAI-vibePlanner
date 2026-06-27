@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{APP_NAME}}</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f7f7f2;
+      --ink: #202124;
+      --muted: #62655f;
+      --line: #d9dbd2;
+      --accent: #1f7a5a;
+      --panel: #ffffff;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--ink);
+      background: var(--bg);
+    }
+    main {
+      width: min(960px, calc(100% - 32px));
+      margin: 0 auto;
+      padding: 40px 0;
+    }
+    header { margin-bottom: 24px; }
+    h1 { margin: 0 0 8px; font-size: clamp(28px, 5vw, 48px); line-height: 1.08; }
+    p { color: var(--muted); line-height: 1.65; }
+    section {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 20px;
+      margin: 16px 0;
+    }
+    label { display: block; font-weight: 700; margin: 14px 0 6px; }
+    input, textarea {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 11px 12px;
+      font: inherit;
+    }
+    textarea { min-height: 96px; resize: vertical; }
+    button {
+      border: 0;
+      border-radius: 6px;
+      padding: 12px 16px;
+      background: var(--accent);
+      color: white;
+      font-weight: 700;
+      cursor: pointer;
+      margin-top: 16px;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 12px;
+    }
+    .result h3 { margin-bottom: 6px; }
+    .result ul { margin-top: 6px; padding-left: 20px; }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>{{APP_NAME}}</h1>
+      <p>{{IDEA}}</p>
+    </header>
+
+    <section>
+      <h2>아이디어 입력</h2>
+      <label for="idea">앱/서비스 한 문장</label>
+      <input id="idea" value="{{IDEA}}">
+
+      <label for="audience">가장 먼저 쓸 사용자</label>
+      <input id="audience" value="{{AUDIENCE}}">
+
+      <label for="problem">해결할 문제</label>
+      <textarea id="problem">{{PROBLEM}}</textarea>
+
+      <button id="generate">계획 만들기</button>
+    </section>
+
+    <section class="result" id="result">
+      <h2>초안 계획</h2>
+      <div class="grid">
+        <article>
+          <h3>MVP 포함</h3>
+          <ul id="must"></ul>
+        </article>
+        <article>
+          <h3>이번에는 제외</h3>
+          <ul id="skip"></ul>
+        </article>
+        <article>
+          <h3>다음 순서</h3>
+          <ul id="steps"></ul>
+        </article>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const must = ["첫 화면", "핵심 입력", "결과 표시"];
+    const skip = ["로그인", "데이터베이스", "결제"];
+    const steps = ["화면 만들기", "버튼 동작 연결", "모바일 확인"];
+
+    function renderList(id, items) {
+      document.getElementById(id).innerHTML = items.map((item) => `<li>${item}</li>`).join("");
+    }
+
+    document.getElementById("generate").addEventListener("click", () => {
+      renderList("must", must);
+      renderList("skip", skip);
+      renderList("steps", steps);
+    });
+
+    renderList("must", must);
+    renderList("skip", skip);
+    renderList("steps", steps);
+  </script>
+</body>
+</html>

@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{APP_NAME}}</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <main>
+    <header>
+      <h1>{{APP_NAME}}</h1>
+      <p>{{IDEA}}</p>
+    </header>
+
+    <section>
+      <label for="idea">앱 아이디어</label>
+      <input id="idea" value="{{IDEA}}">
+
+      <label for="audience">대상 사용자</label>
+      <input id="audience" value="{{AUDIENCE}}">
+
+      <label for="problem">해결할 문제</label>
+      <textarea id="problem">{{PROBLEM}}</textarea>
+
+      <button id="submit">계획 생성</button>
+    </section>
+
+    <section id="result" aria-live="polite"></section>
+  </main>
+  <script src="/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,12 @@
+{
+  "name": "GQAI-vibe-planner",
+  "version": "0.1.0",
+  "description": "Turn a beginner vibe-coder's rough app idea into the right-sized project plan. Checks workspace, chooses Level 1 HTML / Level 2 Local Server / Level 3 Full Project, then generates matching planning docs.",
+  "author": {
+    "name": "GQAI",
+    "email": "parkyongkyu0@gmail.com"
+  },
+  "keywords": ["planning", "prd", "vibe-coding", "beginner", "scaffold", "mvp"],
+  "license": "MIT",
+  "commands": "./commands/"
+}
