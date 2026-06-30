@@ -16,6 +16,9 @@ cp -r "$PLUGIN_DIR/commands"       "$SKILLS_DIR/"
 cp -r "$PLUGIN_DIR/scripts"        "$SKILLS_DIR/"
 cp -r "$PLUGIN_DIR/assets"         "$SKILLS_DIR/"
 
+# 소스 경로 저장 (자동 업데이트에서 사용)
+echo "$PLUGIN_DIR" > "$HOME/.claude/.gqai-vibe-planner_source_path"
+
 echo ""
 echo "✅ 설치 완료!"
 echo "   Claude Code를 재시작하거나 /reload-plugins 를 실행하세요."
