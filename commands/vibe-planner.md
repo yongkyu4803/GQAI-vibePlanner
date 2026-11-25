@@ -1,370 +1,104 @@
 ---
-description: "초보 바이브코더의 아이디어를 적절한 크기의 프로젝트 계획으로 전환. 워크스페이스 확인 → 레벨 선택(HTML/로컬서버/풀) → 기획 문서 생성. PRD, 기획, MVP, 페이즈 계획, 하네스, 개발 프롬프트가 필요할 때 사용."
-allowed-tools: [Bash, Read, AskUserQuestion]
+description: "초보 바이브코더의 아이디어를 적절한 크기의 프로젝트 계획으로 전환. 워크스페이스 확인 → 레벨 선택(HTML/로컬서버/풀) → 기획 문서 생성 → 다음 스킬 안내. PRD, 기획, MVP, 페이즈 계획, 하네스, 개발 프롬프트, 레벨 업그레이드가 필요할 때 사용."
+allowed-tools: [Bash, Read, Write, Edit, AskUserQuestion, Skill]
 ---
 
-# /GQAI:vibe-planner
+# /GQAI-vibe-planner:vibe-planner
 
-## 플러그인 최신 버전 동기화
+기획 문서만 만든다. 앱 코드는 만들지 않는다(코드는 PROMPTS.md의 Phase 1부터).
+스크립트는 `~/.claude/skills/GQAI-vibe-planner/scripts/`에 있고 모두 JSON을 출력한다.
 
-워크스페이스 점검 전에 아래 bash를 실행해서 GitHub 최신 버전을 확인하고, 새 버전이 있으면 자동으로 업데이트한다.
+## 0. 최신 버전 확인
 
 ```bash
-GQAI_SOURCE=""
-
-# 저장된 소스 경로 확인
-if [ -f "$HOME/.claude/.gqai-vibe-planner_source_path" ]; then
-  CANDIDATE=$(cat "$HOME/.claude/.gqai-vibe-planner_source_path")
-  if [ -f "$CANDIDATE/.claude-plugin/plugin.json" ]; then
-    GQAI_SOURCE="$CANDIDATE"
-  fi
-fi
-
-# fallback: git remote URL로 후보 탐색
-if [ -z "$GQAI_SOURCE" ]; then
-  for dir in "$HOME"/*GQAI-vibePlanner* "$HOME"/*vibe-planner* "$HOME"/*vibe_planner*; do
-    if [ -d "$dir/.git" ]; then
-      REMOTE_URL=$(git -C "$dir" remote get-url origin 2>/dev/null || true)
-      if echo "$REMOTE_URL" | grep -q "yongkyu4803/GQAI-vibePlanner"; then
-        GQAI_SOURCE="$dir"
-        echo "$dir" > "$HOME/.claude/.gqai-vibe-planner_source_path"
-        break
-      fi
-    fi
-  done
-fi
-
-if [ -n "$GQAI_SOURCE" ]; then
-  LOCAL_VER=$(python3 -c "import json; print(json.load(open('$GQAI_SOURCE/.claude-plugin/plugin.json'))['version'])" 2>/dev/null || echo "")
-  REMOTE_VER=$(curl -sf "https://raw.githubusercontent.com/yongkyu4803/GQAI-vibePlanner/main/.claude-plugin/plugin.json" \
-    | python3 -c "import json,sys; print(json.load(sys.stdin)['version'])" 2>/dev/null || echo "")
-
-  if [ -z "$REMOTE_VER" ]; then
-    # CASE A: 네트워크 오류 — 조용히 스킵
-    echo "ℹ️  업데이트 확인 실패 (네트워크). 계속 진행합니다"
-  elif [ -z "$LOCAL_VER" ]; then
-    # CASE B: 최초 설치 또는 plugin.json 없음 — 원격 버전으로 초기화
-    echo "🆕 GQAI-vibe-planner 초기 설치 감지 — 최신 버전($REMOTE_VER)으로 동기화 중..."
-    git -C "$GQAI_SOURCE" pull origin main --quiet && \
-      bash "$GQAI_SOURCE/scripts/install_claude_code.sh" && \
-      echo "✅ v$REMOTE_VER 초기화 완료" || \
-      echo "⚠️  동기화 실패. 수동: cd $GQAI_SOURCE && git pull && bash scripts/install_claude_code.sh"
-  elif [ "$LOCAL_VER" = "$REMOTE_VER" ]; then
-    # CASE C: 최신 버전
-    echo "✅ GQAI-vibe-planner v$LOCAL_VER (최신)"
-  else
-    # CASE D: 새 버전 존재
-    echo "⬆️  새 버전 발견: $LOCAL_VER → $REMOTE_VER — 업데이트 중..."
-    git -C "$GQAI_SOURCE" pull origin main --quiet && \
-      bash "$GQAI_SOURCE/scripts/install_claude_code.sh" && \
-      echo "✅ v$REMOTE_VER 업데이트 완료" || \
-      echo "⚠️  업데이트 실패. 수동: cd $GQAI_SOURCE && git pull && bash scripts/install_claude_code.sh"
-  fi
-else
-  # CASE E: 소스 경로 없음 — 스킵
-  echo "ℹ️  소스 경로를 찾을 수 없어 업데이트를 건너뜁니다"
-fi
+bash ~/.claude/skills/GQAI-vibe-planner/scripts/update_check.sh
 ```
 
----
+결과 한 줄만 사용자에게 전하고 다음으로 넘어간다. 실패해도 멈추지 않는다.
 
-## 규칙
-
-이 커맨드를 사용하는 동안 구현을 시작하지 않는다. 워크스페이스를 확인하고, 프로젝트 레벨을 분류한 다음, 해당 레벨에 맞는 기획 문서만 생성한다.
-
----
-
-## 워크스페이스 사전 점검 (Preflight)
-
-5문항 인테이크를 시작하기 전에 반드시 실행한다. 워크스페이스가 확인되기 전까지 기획 문서를 작성하지 않는다.
-
-1. 현재 폴더를 점검한다.
+## 1. 작업 폴더 점검
 
 ```bash
-pwd
-node ~/.claude/skills/GQAI-vibe-planner/scripts/check_workspace.js
+node ~/.claude/skills/GQAI-vibe-planner/scripts/check_workspace.js [폴더]
 ```
 
-2. 기존 앱/레포이거나, 관련 없는 파일이 있거나, `package.json`, `src/`, `app/`, `.next/`, `.git/`이 있거나, 이전 프로젝트처럼 보이면 **not clean**으로 처리한다.
-3. `recommendation`이 `continue-planner-workspace`이면 현재 폴더에서 계속하고 기존 기획 문서를 업데이트한다.
-4. `recommendation`이 `confirm-before-writing`이면 파일을 작성하기 전에 확인을 요청한다.
-5. `recommendation`이 `create-new-folder-and-rerun`이면 플래너를 멈추고 아래 선택지를 제시한다.
+`recommendation`에 따라:
 
-```
-지금 위치는 새 작업 폴더가 아닙니다.
-선택지:
-1. 바탕화면에 타임스탬프 새 폴더를 만들고 그곳에서 다시 시작
-2. 직접 만든 새 폴더 경로를 알려주기
-3. 현재 폴더에서 계속하기. 단, 기존 파일과 섞일 수 있음
-```
+| 값 | 할 일 |
+| --- | --- |
+| `clean-workspace` | 이 폴더에서 바로 2단계로 |
+| `continue-planner-workspace` | 기존 플래너 폴더. `detectedLevel`을 알려주고 "이어서 수정 / 레벨 올리기(6단계) / 새로 시작" 중 묻는다 |
+| `confirm-before-writing` | 보이는 파일 목록을 보여주고 여기에 써도 되는지 묻는다 |
+| `create-new-folder-and-rerun` | 멈추고 묻는다: ①바탕화면에 새 폴더 ②직접 만든 폴더 경로 ③여기서 계속(기존 파일과 섞임) |
 
-6. 사용자가 바탕화면 타임스탬프 옵션을 선택하면 다음 명령을 실행한다.
+①이면 `node ~/.claude/skills/GQAI-vibe-planner/scripts/create_workspace.js` 를 실행한다. 세션 위치는 바뀌지 않으므로 **이후 모든 스크립트에 `--root <workspacePath>`(validate·check는 첫 인자)를 넘기고**, 파일도 그 경로 아래에 쓴다.
+
+## 2. 인테이크
+
+AskUserQuestion: "기획 내용을 어떻게 입력할까요?"
+- **A. 지금 바로 답하기** — `~/.claude/skills/GQAI-vibe-planner/assets/intake_questions.md`의 5문항을 보여주고 모두 답할 때까지 기다린다.
+- **B. 다른 AI와 대화 후 붙여넣기** (기획이 막연할 때 추천) — `~/.claude/skills/GQAI-vibe-planner/assets/external_ai_prompt.txt`를 그대로 출력하고, 결과를 붙여넣어 달라고 한다.
+- **C. 파일로 불러오기** — 경로를 받아 Read. 못 읽으면 붙여넣기를 요청한다.
+
+어느 경우든 결정사항 / 가정 / 미확정 질문 / 리스크와 5번 항목별 needed·later·not needed·unknown 으로 정리해 보여준다.
+
+## 3. 레벨 결정
+
+검증 가능한 가장 작은 레벨을 추천하고 한 단락으로 이유를 댄 뒤 확인받는다. 애매하면 `html`.
+
+| 레벨 | 고르는 조건 |
+| --- | --- |
+| `html` | 한 화면 + 브라우저 동작으로 검증 가능. 서버·API·저장 없음 |
+| `local-server` | API, 서버 쪽 AI 호출, 로컬 파일 처리가 needed. DB·로그인은 불필요 |
+| `full` | 로그인, DB, 권한, 파일 저장, 사용자별 데이터 중 하나라도 needed |
+
+`full`이면 질문 하나를 더 한다: "정해 둔 기술 스택이 있나요? 없으면 Next.js + Supabase + Vercel로 갑니다." 답을 `--stack`으로 넘긴다.
+
+## 4. 문서 뼈대 생성
 
 ```bash
-node ~/.claude/skills/GQAI-vibe-planner/scripts/create_workspace.js
+node ~/.claude/skills/GQAI-vibe-planner/scripts/create_planning_docs.js --level <레벨> [--root <폴더>] \
+  --app-name "…" --idea "…" --audience "…" --problem "…" [--stack "…"]
 ```
 
-반환된 `workspacePath`로 작업 컨텍스트를 이동하고, 5문항 인테이크부터 플래너를 다시 시작한다.
+스크립트가 만든 파일(`created`)이 이번 산출물의 전부다. `skipped`가 있으면 덮어쓰지 말고 사용자에게 알린다.
 
-7. 확인된 워크스페이스 경로를 `PROJECT_GUIDE.md`와 `INTAKE_SUMMARY.md`에 저장한다.
+## 5. 문서 채우기와 검증
 
----
+`created`의 파일을 하나씩 열어 인테이크 내용으로 채운다. 각 파일의 `<!-- -->` 주석이 그 자리의 작성 지침이며, 채운 뒤 지침 주석은 지운다("채우는 법"·"기술 스택" 주석은 남겨도 된다).
 
-## 시작 루틴
+- 초보자용 쉬운 한국어, 긴 글보다 표와 체크리스트.
+- 가정은 확정 요구사항과 따로 표시한다. "기타", "나중에 통합" 뒤에 위험한 범위를 숨기지 않는다.
+- not needed 항목의 Phase는 지우지 말고 "건너뜀: 이유"로 남긴다.
+- PROJECT_GUIDE.md의 "Phase 상태"(다음 작업·완료 조건)를 반드시 채운다.
 
-워크스페이스가 확인되면, 기획 내용을 어떻게 입력할지 먼저 AskUserQuestion으로 묻는다.
-
-**질문**: "기획 내용을 어떻게 입력할까요?"
-
-**선택지**:
-- **A. 지금 바로 답하기** — 아래 5개 질문에 이 채팅에서 직접 답변
-- **B. 다른 AI에서 대화하고 붙여넣기** — Claude.ai / ChatGPT 등에서 대화한 뒤 요약 결과를 붙여넣기 (추천: 기획이 아직 막연할 때)
-- **C. 파일로 불러오기** — 미리 정리해 둔 문서의 경로를 입력하면 읽어서 처리
-
----
-
-### A. 직접 답변 모드
-
-아래 5개 질문을 보여주고 사용자가 답변하기를 기다린다. 모든 답변이 나오기 전까지 PRD 작성을 시작하지 않는다.
-
-```
-1. 만들고 싶은 앱/서비스를 한 문장으로 설명하면 무엇인가요?
-2. 이 앱을 가장 먼저 쓸 사람은 누구인가요?
-3. 그 사용자가 지금 겪는 문제는 무엇이고, 현재는 어떻게 해결하고 있나요?
-4. 첫 버전에서 반드시 가능해야 하는 핵심 행동은 무엇인가요? 최대 3개만 적어주세요.
-5. 로그인, 데이터베이스, 파일 업로드, AI, 결제, 관리자, 배포 중 필요한 것은 무엇이고 아직 모르는 것은 무엇인가요?
-```
-
-답변을 모두 받으면 → 결정사항·가정·미결 질문·리스크를 추출해서 요약하고, 레벨 결정으로 넘어간다.
-
----
-
-### B. 외부 AI 요약 붙여넣기 모드
-
-아래 프롬프트를 그대로 출력한다. 사용자가 이걸 복사해서 Claude.ai, ChatGPT, 또는 다른 AI에서 대화한 뒤 요약 결과를 이 채팅에 붙여넣도록 안내한다.
-
----
-
-**아래 프롬프트를 복사해서 Claude.ai 또는 ChatGPT에 붙여넣고 대화하세요. 마지막에 요약이 나오면 그걸 다시 여기에 붙여넣어 주세요.**
-
-```
-나는 초보 바이브코더이고 앱 개발 전에 기획을 정리하고 싶어.
-아래 5개 질문에 답을 만들 수 있게 나와 대화해줘.
-마지막에는 Claude Code에 붙여넣을 수 있도록 "기획 입력 요약" 형식으로 정리해줘.
-
-1. 만들고 싶은 앱/서비스를 한 문장으로 설명하면 무엇인가?
-2. 이 앱을 가장 먼저 쓸 사람은 누구인가?
-3. 그 사용자가 지금 겪는 문제는 무엇이고, 현재는 어떻게 해결하고 있는가?
-4. 첫 버전에서 반드시 가능해야 하는 핵심 행동은 무엇인가? 최대 3개.
-5. 로그인, 데이터베이스, 파일 업로드, AI, 결제, 관리자, 배포 중 필요한 것은 무엇이고 아직 모르는 것은 무엇인가?
-```
-
----
-
-사용자가 요약 텍스트를 붙여넣으면 → 결정사항·가정·미결 질문·리스크를 추출해서 요약하고, 레벨 결정으로 넘어간다.
-
----
-
-### C. 문서 파일 불러오기 모드
-
-사용자에게 파일 경로를 묻는다. 경로를 받으면 Read 도구로 파일을 읽는다. 파일을 읽을 수 없으면 내용을 직접 붙여넣도록 요청한다.
-
-파일 내용을 읽은 후 → 결정사항·가정·미결 질문·리스크를 추출해서 요약하고, 레벨 결정으로 넘어간다.
-
----
-
-세 가지 모드 공통: 인테이크 요약이 끝나면 레벨 결정 단계로 넘어간다.
-
----
-
-## 레벨 결정
-
-아이디어를 검증할 수 있는 가장 작은 레벨을 선택한다.
-
-| 레벨 | 사용 조건 | 기본 산출물 |
-| --- | --- | --- |
-| `html` | 화면 전용 프로토타입, 서버 없음, API 없음, 저장 데이터 없음 | `index.html` + 짧은 기획 문서 3개 |
-| `local-server` | 단순 API, 로컬 처리, 선택적 서버사이드 AI 호출, DB/로그인 불필요 | `server.js`, `public/*` + 기획 문서 5개 |
-| `full` | 로그인, DB, 권한, 프로덕션 인증 콜백, 저장된 사용자 데이터, 운영 기능 필요 | 전체 기획 문서 |
-
-자동 추천 기준:
-
-- 로그인, 데이터베이스, 권한, 파일 저장, 사용자별 저장 데이터가 `needed`이면 → `full` 추천.
-- API, 서버사이드 AI 호출, 로컬 파일 처리, 요청/응답 워크플로가 `needed`이지만 DB/로그인이 불필요하면 → `local-server` 추천.
-- 하나의 화면과 브라우저 인터랙션으로 아이디어를 검증할 수 있으면 → `html` 추천.
-
-파일을 작성하기 전에 추천 레벨을 보여주고 사용자의 확인 또는 변경을 받는다. 사용자가 레벨을 지정하지 않고 아이디어가 애매하면 `html`로 기본 설정한다.
-
----
-
-## 대화 흐름
-
-아래 순서로 기획 대화를 진행한다.
-
-1. **아이디어 인테이크**
-   - 워크스페이스 사전 점검을 먼저 실행한다.
-   - 5문항 시작 루틴을 사용한다.
-   - 직접 답변, 붙여넣은 외부 AI 요약, 로컬 요약 문서 경로를 모두 수용한다.
-   - 정규화된 결과를 기획 문서 작성 시 `INTAKE_SUMMARY.md`에 저장한다.
-
-2. **레벨 결정**
-   - `html`, `local-server`, `full` 중 하나를 추천한다.
-   - 이유를 짧은 단락으로 설명한다.
-   - 파일을 작성하기 전에 레벨을 확인한다.
-
-3. **범위 축소 (Scope Cut)**
-   - 필수 기능(must-have) 3개를 선택한다.
-   - 명시적인 비목표(non-goal) 3개를 선택한다.
-   - 로그인, 데이터베이스, 파일 업로드, 결제, AI, 관리자, 애널리틱스, 배포를 `needed` / `later` / `not needed`로 표시한다.
-
-4. **유저 플로우**
-   - 첫 화면, 주요 행동, 성공 상태, 빈 상태, 오류 상태, 복귀 경로를 정의한다.
-   - `html`: 모든 것을 한 페이지에 유지한다.
-   - `local-server`: 화면은 `public/*`, API는 `server.js`에 유지한다.
-   - `full`: 인증이 필요한 경우 랜딩/목록 페이지와 보호된 상세/계정 페이지를 분리한다.
-
-5. **데이터 모델**
-   - `html`: 임시 브라우저 상태 외에 데이터 모델을 만들지 않는다.
-   - `local-server`: 요청/응답 형태를 정의하고, 사용자가 명시적으로 `full`로 업그레이드하지 않는 한 DB를 사용하지 않는다.
-   - `full`: 엔티티, 필드, 소유자, 가시성, CRUD 요구사항, RLS 패턴을 나열한다.
-
-6. **페이즈 계획**
-   - 독립적으로 완료 및 검증할 수 있는 페이즈로 구현을 분할한다.
-   - 선택한 레벨에서 필요한 경우에만 Auth, DB, 배포, 애널리틱스 페이즈를 포함한다.
-
-7. **검증 하네스 (Validation Harness)**
-   - 각 페이즈에 완료 기준과 명령어를 추가한다.
-   - `html`: 브라우저 열기 확인만 사용한다.
-   - `local-server`: `npm run dev`, `curl`, 브라우저 확인을 사용한다.
-   - `full`: 브라우저 확인, 라우트 확인, 인증 리다이렉트, DB/RLS 확인, 배포 확인을 포함한다.
-
-8. **개발 프롬프트 (Claude Code Prompts)**
-   - 페이즈별로 프롬프트를 하나씩 생성한다.
-   - 각 프롬프트는 루트 `PROJECT_GUIDE.md`를 먼저 읽을 것, 무엇을 할지, 무엇을 하지 말 것, 어떤 상세 파일을 읽을지, 어떤 검증을 실행할지를 명시해야 한다.
-
----
-
-## 산출물 파일
-
-사용자가 계획 저장을 요청하면 선택된 레벨에 맞는 파일만 생성한다.
-
-**Level 1 `html`:**
-
-```
-PROJECT_GUIDE.md
-index.html
-docs/planning/ONE_PAGE_PLAN.md
-docs/planning/CHECKLIST.md
-docs/planning/PROMPTS.md
-```
-
-**Level 2 `local-server`:**
-
-```
-PROJECT_GUIDE.md
-package.json
-server.js
-public/index.html
-public/styles.css
-public/app.js
-docs/planning/PRD.md
-docs/planning/API_PLAN.md
-docs/planning/PHASE_PLAN.md
-docs/planning/VALIDATION_HARNESS.md
-docs/planning/PROMPTS.md
-```
-
-**Level 3 `full`:**
-
-```
-PROJECT_GUIDE.md
-docs/planning/INTAKE_SUMMARY.md
-docs/planning/PRD.md
-docs/planning/MVP_SCOPE.md
-docs/planning/USER_FLOW.md
-docs/planning/DATA_MODEL.md
-docs/planning/PHASE_PLAN.md
-docs/planning/VALIDATION_HARNESS.md
-docs/planning/PROMPTS.md
-```
-
-`PROJECT_GUIDE.md`를 개발 진입점으로 사용한다. 이후 구현 세션은 코드를 건드리기 전에 이 파일을 먼저 읽어야 한다. 상세 문서는 `docs/planning` 아래에 두고 루트 가이드에서 링크한다.
-
-파일이 없으면 번들 스캐폴드 스크립트를 사용한다.
+다 채운 뒤:
 
 ```bash
-node ~/.claude/skills/GQAI-vibe-planner/scripts/create_planning_docs.js \
-  --level html \
-  --out docs/planning \
-  --app-name "앱 이름" \
-  --idea "앱 아이디어 한 줄" \
-  --audience "대상 사용자" \
-  --problem "해결할 문제"
+node ~/.claude/skills/GQAI-vibe-planner/scripts/validate_docs.js [폴더]
 ```
 
-그런 다음 생성된 템플릿을 실제 기획 내용으로 채운다.
+`ok: true`가 될 때까지 `errors`를 고친다. `warnings`는 사용자에게 보여주고 판단을 맡긴다.
 
-레벨 확인 후 `--level local-server` 또는 `--level full`을 사용한다.
+## 6. 레벨 올리기 (기존 플래너 폴더)
 
----
-
-## 페이즈 기본값
-
-앱이 다른 순서가 필요하지 않으면 아래 기본값을 사용한다.
-
-**Level 1 `html`:**
-- Phase 1. One HTML Prototype: `index.html` 생성
-- Phase 2. Browser Interaction: 간단한 JS 상태 추가
-- Phase 3. Polish: 모바일 및 문구 확인
-
-**Level 2 `local-server`:**
-- Phase 1. Static Public UI: `public/*` 구축
-- Phase 2. Local API: `server.js`에 API 엔드포인트 1개 추가
-- Phase 3. Core Workflow: UI와 API 연결
-- Phase 4. Polish: 로딩, 오류, 모바일 레이아웃 처리
-- Phase 5. Runbook: `npm install` 및 `npm run dev` 문서화
-
-**Level 3 `full`:**
-- Phase 0. Planning Lock: PRD, MVP, 비목표, 하네스 확인
-- Phase 1. Static UI: 로컬 목 데이터만으로 화면 구축
-- Phase 2. Data Model: 스키마, 시드 데이터, RLS 계획 정의
-- Phase 3. Core Workflow: 주요 사용자 행동을 처음부터 끝까지 구현
-- Phase 4. Auth & Permissions: 로그인, 보호 라우트, 소유자 확인, 리다이렉트 추가
-- Phase 5. Deployment: 환경 변수, 빌드, 프로덕션 URL, 콜백 URL 설정
-- Phase 6. Operations: 애널리틱스, 가입 확인, 오류 확인, 릴리스 노트
-
----
-
-## 하네스 요구사항
-
-모든 페이즈에 포함해야 하는 항목:
-- Goal(목표)
-- Tasks(작업)
-- Completion criteria(완료 기준)
-- Validation commands(검증 명령어)
-- Browser checks(브라우저 확인)
-- Next phase gate(다음 페이즈 진입 조건)
-- Rollback or failure handling note(롤백 또는 실패 처리 메모)
-
-공통 검증 명령어:
+`html → local-server → full` 처럼 올릴 때:
 
 ```bash
-npm run lint
-npm run build
+node ~/.claude/skills/GQAI-vibe-planner/scripts/create_planning_docs.js --level <새 레벨> --upgrade [--root <폴더>] …
 ```
 
-npm 프로젝트가 있는 레벨에서만 이 명령어를 사용한다. `html`은 브라우저 직접 확인을 사용한다. 라우트 확인은 `curl -I` 예시를 사용한다. 인증 앱은 다음을 요구한다:
-- 공개 랜딩 페이지가 200을 반환
-- 보호된 상세 페이지가 `/login?next=...`으로 리다이렉트
-- 로그인 성공 시 원래 페이지로 복귀
-- 로그아웃 후 보호된 페이지가 다시 차단됨
+- 기존 파일은 그대로 두고, 겹치는 파일의 새 버전은 `_upgrade/<레벨>/`에 생긴다(`pendingMerge`).
+- 기존 내용(인테이크, 확정 결정)을 살리면서 새 버전의 구조로 병합하고 `_upgrade` 폴더를 지운다.
+- PROJECT_GUIDE.md의 `레벨 코드`와 "레벨 변경 기록" 표에 한 줄 추가한다.
+- 5단계의 채우기와 검증을 다시 한다.
 
----
+## 7. 마무리: 다음 할 일 하나
 
-## 산출물 스타일
+만든 파일 목록과 함께 **다음 할 일 하나만** 안내한다.
 
-- 기획 문서는 초보자를 위해 명확한 한국어로 작성한다.
-- MVP는 작고 명확하게 유지한다.
-- 긴 글 대신 체크리스트와 표를 선호한다.
-- 가정사항은 확인된 요구사항과 별도로 표시한다.
-- "기타" 또는 "나중에 통합" 같은 모호한 표현 뒤에 위험한 범위를 숨기지 않는다.
+- `html`, `local-server`: PROJECT_GUIDE.md "다음 단계"의 프롬프트를 새 세션에 붙여넣어 Phase 1을 시작한다.
+- `full` + 기본 스택: `/vibe:nextjs-init`으로 뼈대부터 만든다(기획 문서는 그대로 남는다). 이후 순서는 PROJECT_GUIDE.md "다음 단계" 표에 있다.
+- `full` + 다른 스택: PROMPTS.md의 Phase 1 프롬프트로 시작한다.
+
+AskUserQuestion으로 "바로 시작할까요?"를 묻고, 스킬을 고른 경우 Skill 도구로 실행한다.

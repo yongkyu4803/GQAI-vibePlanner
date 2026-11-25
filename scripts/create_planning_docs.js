@@ -1,125 +1,120 @@
 #!/usr/bin/env node
 const fs = require("fs");
 const path = require("path");
+const { parseArgs, str, expandHome } = require("./lib/args");
 
-const args = process.argv.slice(2);
+const { flags } = parseArgs();
 
-function readFlag(name, fallback = "") {
-  const index = args.indexOf(name);
-  if (index === -1) return fallback;
-  return args[index + 1] ?? fallback;
-}
+const LEVELS = {
+  html: "Level 1. One HTML",
+  "local-server": "Level 2. Local Server",
+  full: "Level 3. Full Project",
+};
+const DEFAULT_STACK = "Next.js + Supabase + Vercel (기본값)";
 
-function hasFlag(name) {
-  return args.includes(name);
-}
-
-function usage() {
+if (flags.help) {
   console.log(`Usage:
-node create_planning_docs.js --level html --app-name "App" --idea "Idea" --audience "Users" --problem "Problem" [--out docs/planning] [--overwrite]
+node create_planning_docs.js --level <html|local-server|full> --app-name "앱" --idea "한 줄" \\
+  --audience "사용자" --problem "문제" [--stack "스택"] [--root <폴더>] [--out docs/planning] \\
+  [--upgrade] [--overwrite]
 
-Run workspace preflight before creating files:
-  node ~/.claude/skills/GQAI-vibe-planner/scripts/check_workspace.js
-
-If the current folder is not appropriate, create a Desktop timestamp workspace:
-  node ~/.claude/skills/GQAI-vibe-planner/scripts/create_workspace.js
-
-Levels:
-  html          Level 1. One HTML file, no server
-  local-server  Level 2. Simple local Node/Express server
-  full          Level 3. Full planning docs
-
-Default level: html`);
-}
-
-if (hasFlag("--help")) {
-  usage();
+  --root      문서를 만들 프로젝트 루트 (기본: 현재 폴더)
+  --out       상세 문서 폴더, root 기준 (기본: docs/planning)
+  --stack     full 레벨 기술 스택 (기본: ${DEFAULT_STACK})
+  --upgrade   이미 있는 파일은 건드리지 않고 새 레벨 버전을 <out>/_upgrade/<level>/ 에 써서 병합 대상으로 알려준다
+  --overwrite 이미 있는 파일을 덮어쓴다 (주의)`);
   process.exit(0);
 }
 
-const outputDir = readFlag("--out", "docs/planning");
-const level = readFlag("--level", "html");
-const levelConfig = {
-  html: {
-    label: "Level 1. One HTML",
-    templateDir: path.join("assets", "templates", "level-1-html"),
-  },
-  "local-server": {
-    label: "Level 2. Local Server",
-    templateDir: path.join("assets", "templates", "level-2-local-server"),
-  },
-  full: {
-    label: "Level 3. Full Project",
-    templateDir: path.join("assets", "templates"),
-  },
-};
-
-if (!levelConfig[level]) {
-  console.error(`Unknown level: ${level}`);
-  console.error("Use one of: html, local-server, full");
+const level = str(flags, "level", "html");
+if (!LEVELS[level]) {
+  console.error(`Unknown level: ${level}. Use one of: ${Object.keys(LEVELS).join(", ")}`);
   process.exit(1);
 }
 
+const root = path.resolve(expandHome(str(flags, "root", process.cwd())));
+if (!fs.existsSync(root) || !fs.statSync(root).isDirectory()) {
+  console.error(`--root 폴더가 없습니다: ${root}`);
+  process.exit(1);
+}
+const outRel = str(flags, "out", "docs/planning").replace(/\/+$/, "");
+const outDir = path.resolve(root, outRel);
+const planningDirLink = path.relative(root, outDir).split(path.sep).join("/") || ".";
+const overwrite = flags.overwrite === true;
+const upgrade = flags.upgrade === true;
+
 const values = {
-  APP_NAME: readFlag("--app-name", "앱 이름 미정"),
-  IDEA: readFlag("--idea", "아이디어 미정"),
-  AUDIENCE: readFlag("--audience", "대상 사용자 미정"),
-  PROBLEM: readFlag("--problem", "해결할 문제 미정"),
+  APP_NAME: str(flags, "app-name", "앱 이름 미정"),
+  IDEA: str(flags, "idea", "아이디어 미정"),
+  AUDIENCE: str(flags, "audience", "대상 사용자 미정"),
+  PROBLEM: str(flags, "problem", "해결할 문제 미정"),
+  STACK: str(flags, "stack", DEFAULT_STACK),
   DATE: new Date().toISOString().slice(0, 10),
-  PROJECT_ROOT: process.cwd(),
+  PROJECT_ROOT: root,
+  PLANNING_DIR: planningDirLink,
   LEVEL: level,
-  LEVEL_LABEL: levelConfig[level].label,
+  LEVEL_LABEL: LEVELS[level],
 };
 
-const skillDir = path.resolve(__dirname, "..");
-const templateDir = path.join(skillDir, levelConfig[level].templateDir);
-const targetDir = path.resolve(process.cwd(), outputDir);
-const overwrite = hasFlag("--overwrite");
-const rootTemplates = new Set(["PROJECT_GUIDE.md"]);
-
 function render(content) {
-  return content.replace(/\{\{([A-Z_]+)\}\}/g, (_, key) => values[key] ?? "");
+  return content.replace(/\{\{([A-Z_]+)\}\}/g, (match, key) => (key in values ? values[key] : match));
 }
 
-function collectFiles(dir, baseDir = dir) {
-  const result = [];
-  for (const name of fs.readdirSync(dir).sort()) {
-    const current = path.join(dir, name);
-    const stat = fs.statSync(current);
+function collect(dir, base = dir) {
+  if (!fs.existsSync(dir)) return [];
+  return fs.readdirSync(dir).sort().flatMap((name) => {
+    const full = path.join(dir, name);
+    return fs.statSync(full).isDirectory() ? collect(full, base) : [path.relative(base, full)];
+  });
+}
 
-    if (stat.isDirectory()) {
-      if (level === "full") continue;
-      result.push(...collectFiles(current, baseDir));
-      continue;
-    }
-
-    if (level === "full" && !name.endsWith(".md")) continue;
-    result.push({
-      source: current,
-      relative: path.relative(baseDir, current),
-    });
+// 템플릿의 docs/planning/* 는 --out 으로, 나머지는 root 로 간다.
+function targetFor(relative) {
+  const parts = relative.split(path.sep);
+  if (parts[0] === "docs" && parts[1] === "planning") {
+    return path.join(outDir, ...parts.slice(2));
   }
-  return result;
+  return path.join(root, relative);
 }
+
+const templatesDir = path.join(__dirname, "..", "assets", "templates");
+const sources = [
+  ...collect(path.join(templatesDir, "shared")).map((r) => [path.join(templatesDir, "shared", r), r]),
+  ...collect(path.join(templatesDir, level)).map((r) => [path.join(templatesDir, level, r), r]),
+];
 
 const created = [];
 const skipped = [];
+const pendingMerge = [];
+const rel = (p) => path.relative(root, p).split(path.sep).join("/");
 
-for (const file of collectFiles(templateDir)) {
-  const target = level === "full" && rootTemplates.has(file.relative)
-    ? path.resolve(process.cwd(), file.relative)
-    : level === "full"
-      ? path.join(targetDir, file.relative)
-      : path.resolve(process.cwd(), file.relative);
+for (const [source, relative] of sources) {
+  let target = targetFor(relative);
+  const exists = fs.existsSync(target);
 
-  if (fs.existsSync(target) && !overwrite) {
-    skipped.push(path.relative(process.cwd(), target));
-    continue;
+  if (exists && !overwrite) {
+    if (!upgrade) {
+      skipped.push(rel(target));
+      continue;
+    }
+    const staged = path.join(outDir, "_upgrade", level, relative.split(path.sep).slice(relative.startsWith("docs") ? 2 : 0).join(path.sep));
+    pendingMerge.push({ existing: rel(target), newVersion: rel(staged) });
+    target = staged;
   }
 
   fs.mkdirSync(path.dirname(target), { recursive: true });
-  fs.writeFileSync(target, render(fs.readFileSync(file.source, "utf8")), "utf8");
-  created.push(path.relative(process.cwd(), target));
+  fs.writeFileSync(target, render(fs.readFileSync(source, "utf8")), "utf8");
+  if (!pendingMerge.some((m) => m.newVersion === rel(target))) created.push(rel(target));
 }
 
-console.log(JSON.stringify({ level, levelLabel: levelConfig[level].label, outputDir: path.relative(process.cwd(), targetDir), created, skipped }, null, 2));
+const result = { level, levelLabel: LEVELS[level], root, planningDir: planningDirLink, created, skipped };
+if (upgrade) {
+  result.pendingMerge = pendingMerge;
+  result.nextStep = pendingMerge.length
+    ? "pendingMerge의 newVersion 내용을 existing 파일에 병합하고, PROJECT_GUIDE.md 레벨 코드·레벨 변경 기록을 갱신한 뒤 _upgrade 폴더를 지운다."
+    : "병합할 파일 없음. PROJECT_GUIDE.md 레벨 정보만 갱신한다.";
+}
+if (skipped.length && !upgrade) {
+  result.note = "이미 있는 파일은 건너뛰었습니다. 레벨을 올리는 중이면 --upgrade 를 쓰세요.";
+}
+console.log(JSON.stringify(result, null, 2));

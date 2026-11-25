@@ -2,65 +2,37 @@
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
+const { parseArgs, str, expandHome } = require("./lib/args");
 
-const args = process.argv.slice(2);
+const { flags } = parseArgs();
 
-function readFlag(name, fallback = "") {
-  const index = args.indexOf(name);
-  if (index === -1) return fallback;
-  return args[index + 1] ?? fallback;
-}
-
-function hasFlag(name) {
-  return args.includes(name);
-}
-
-function pad(value) {
-  return String(value).padStart(2, "0");
-}
-
-function timestamp(date = new Date()) {
-  return [
-    date.getFullYear(),
-    pad(date.getMonth() + 1),
-    pad(date.getDate()),
-  ].join("-") + "-" + [
-    pad(date.getHours()),
-    pad(date.getMinutes()),
-    pad(date.getSeconds()),
-  ].join("");
-}
-
-function usage() {
+if (flags.help) {
   console.log(`Usage:
 node create_workspace.js [--prefix vibe-app-plan] [--base ~/Desktop] [--dry-run]
 
-Creates a new timestamped workspace folder on the Desktop by default.`);
-}
-
-if (hasFlag("--help")) {
-  usage();
+새 작업 폴더를 만든다. 기본 위치는 바탕화면이고, 바탕화면이 없으면 홈 폴더를 쓴다.`);
   process.exit(0);
 }
 
-const prefix = readFlag("--prefix", "vibe-app-plan");
-const base = readFlag("--base", path.join(os.homedir(), "Desktop")).replace(/^~(?=$|\/)/, os.homedir());
-const dryRun = hasFlag("--dry-run");
+const pad = (v) => String(v).padStart(2, "0");
+const d = new Date();
+const stamp = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
 
-let workspacePath = path.join(base, `${prefix}-${timestamp()}`);
-let suffix = 1;
+const desktop = path.join(os.homedir(), "Desktop");
+const base = path.resolve(expandHome(str(flags, "base", fs.existsSync(desktop) ? desktop : os.homedir())));
+const prefix = str(flags, "prefix", "vibe-app-plan").replace(/[\\/]/g, "-");
+const dryRun = flags["dry-run"] === true;
 
-while (fs.existsSync(workspacePath)) {
-  workspacePath = path.join(base, `${prefix}-${timestamp()}-${String(suffix).padStart(2, "0")}`);
-  suffix += 1;
+let workspacePath = path.join(base, `${prefix}-${stamp}`);
+for (let n = 1; fs.existsSync(workspacePath); n += 1) {
+  workspacePath = path.join(base, `${prefix}-${stamp}-${pad(n)}`);
 }
 
-if (!dryRun) {
-  fs.mkdirSync(workspacePath, { recursive: true });
-}
+if (!dryRun) fs.mkdirSync(workspacePath, { recursive: true });
 
 console.log(JSON.stringify({
   created: !dryRun,
   workspacePath,
-  cdCommand: `cd ${JSON.stringify(workspacePath)}`,
+  // Claude Code 세션은 이 폴더로 옮겨가지 않을 수 있으므로, 이후 스크립트에는 --root 로 이 경로를 넘긴다.
+  nextCommandHint: `node ~/.claude/skills/GQAI-vibe-planner/scripts/check_workspace.js ${JSON.stringify(workspacePath)}`,
 }, null, 2));

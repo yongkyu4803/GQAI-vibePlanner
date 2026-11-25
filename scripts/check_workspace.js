@@ -1,79 +1,50 @@
 #!/usr/bin/env node
+// 작업 폴더 사전 점검. 사용: node check_workspace.js [폴더] (기본: 현재 폴더)
 const fs = require("fs");
-const os = require("os");
 const path = require("path");
+const { parseArgs, expandHome } = require("./lib/args");
 
-const cwd = process.cwd();
-const entries = fs.readdirSync(cwd);
-const ignored = new Set([".DS_Store"]);
-const visibleEntries = entries.filter((entry) => !ignored.has(entry));
-
-function pad(value) {
-  return String(value).padStart(2, "0");
+const { positional } = parseArgs();
+const cwd = path.resolve(expandHome(positional[0] || process.cwd()));
+if (!fs.existsSync(cwd)) {
+  console.error(`폴더가 없습니다: ${cwd}`);
+  process.exit(1);
 }
 
-function timestamp(date = new Date()) {
-  return [
-    date.getFullYear(),
-    pad(date.getMonth() + 1),
-    pad(date.getDate()),
-  ].join("-") + "-" + [
-    pad(date.getHours()),
-    pad(date.getMinutes()),
-    pad(date.getSeconds()),
-  ].join("");
-}
+const visibleEntries = fs.readdirSync(cwd).filter((e) => e !== ".DS_Store");
+const has = (...p) => fs.existsSync(path.join(cwd, ...p));
 
-const hasPlannerGuide = fs.existsSync(path.join(cwd, "PROJECT_GUIDE.md"));
-const hasPlanningDir = fs.existsSync(path.join(cwd, "docs", "planning"));
-const hasOneHtmlPlan = fs.existsSync(path.join(cwd, "docs", "planning", "ONE_PAGE_PLAN.md"));
-const hasLocalServerPlan = fs.existsSync(path.join(cwd, "docs", "planning", "API_PLAN.md"));
-const hasFullPlan = fs.existsSync(path.join(cwd, "docs", "planning", "DATA_MODEL.md"));
-const plannerWorkspace = hasPlannerGuide && hasPlanningDir;
+const guidePath = path.join(cwd, "PROJECT_GUIDE.md");
+const hasPlannerGuide = fs.existsSync(guidePath);
+const plannerWorkspace = hasPlannerGuide && has("docs", "planning");
 
+// 레벨: PROJECT_GUIDE.md의 "레벨 코드:" 줄을 우선, 없으면 문서 파일로 추정 (구버전 호환)
 let detectedLevel = "";
-if (hasFullPlan) {
-  detectedLevel = "full";
-} else if (hasLocalServerPlan) {
-  detectedLevel = "local-server";
-} else if (hasOneHtmlPlan) {
-  detectedLevel = "html";
+if (hasPlannerGuide) {
+  const m = fs.readFileSync(guidePath, "utf8").match(/레벨 코드:\s*(html|local-server|full)/);
+  if (m) detectedLevel = m[1];
+}
+if (!detectedLevel) {
+  if (has("docs", "planning", "DATA_MODEL.md")) detectedLevel = "full";
+  else if (has("docs", "planning", "API_PLAN.md")) detectedLevel = "local-server";
+  else if (has("docs", "planning", "ONE_PAGE_PLAN.md")) detectedLevel = "html";
 }
 
 const appMarkers = [
-  "package.json",
-  "pnpm-lock.yaml",
-  "package-lock.json",
-  "yarn.lock",
-  "src",
-  "app",
-  "pages",
-  "next.config.js",
-  "next.config.ts",
-  ".next",
-  ".git",
-  "supabase",
-  "prisma",
+  "package.json", "pnpm-lock.yaml", "package-lock.json", "yarn.lock",
+  "src", "app", "pages", "next.config.js", "next.config.ts", "next.config.mjs",
+  ".next", ".git", "supabase", "prisma",
 ];
-
-const foundMarkers = appMarkers.filter((marker) => fs.existsSync(path.join(cwd, marker)));
+const foundMarkers = appMarkers.filter((m) => has(m));
 const clean = visibleEntries.length === 0;
 const likelyExistingProject = !plannerWorkspace && (foundMarkers.length > 0 || visibleEntries.length > 5);
 
+// clean-workspace → 바로 진행 / continue-planner-workspace → 기존 문서 갱신
+// confirm-before-writing → 쓰기 전 확인 / create-new-folder-and-rerun → 새 폴더 권장
 let recommendation = "confirm-before-writing";
-
-if (plannerWorkspace) {
-  recommendation = "continue-planner-workspace";
-} else if (clean) {
-  recommendation = "clean-workspace";
-} else if (likelyExistingProject) {
-  recommendation = "create-new-folder-and-rerun";
-}
-
-const desktopDir = path.join(os.homedir(), "Desktop");
-const suggestedWorkspaceName = `vibe-app-plan-${timestamp()}`;
-const suggestedWorkspacePath = path.join(desktopDir, suggestedWorkspaceName);
-const createWorkspaceCommand = "node ~/.claude/skills/GQAI-vibe-planner/scripts/create_workspace.js";
+if (plannerWorkspace) recommendation = "continue-planner-workspace";
+else if (clean) recommendation = "clean-workspace";
+else if (likelyExistingProject) recommendation = "create-new-folder-and-rerun";
 
 console.log(JSON.stringify({
   cwd,
@@ -81,12 +52,8 @@ console.log(JSON.stringify({
   visibleEntries: visibleEntries.slice(0, 20),
   foundMarkers,
   plannerWorkspace,
-  hasPlannerGuide,
-  hasPlanningDir,
   detectedLevel,
   clean,
   likelyExistingProject,
   recommendation,
-  suggestedWorkspacePath,
-  createWorkspaceCommand,
 }, null, 2));
