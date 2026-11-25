@@ -29,12 +29,15 @@ if [ -z "$SOURCE" ]; then
 fi
 
 read_ver() { python3 -c "import json,sys; print(json.load(sys.stdin)['version'])" 2>/dev/null; }
+# $1 > $2 이면 0 (semver 숫자 비교)
+newer() { python3 -c "import sys; v=lambda s: tuple(int(x) for x in s.split('.')); sys.exit(0 if v(sys.argv[1]) > v(sys.argv[2]) else 1)" "$1" "$2" 2>/dev/null; }
 LOCAL_VER="$(read_ver < "$SOURCE/.claude-plugin/plugin.json")"
 REMOTE_VER="$(curl -sf --max-time 5 "https://raw.githubusercontent.com/$REPO/main/.claude-plugin/plugin.json" | read_ver)"
 
 if [ -z "$REMOTE_VER" ]; then
   echo "ℹ️  업데이트 확인 실패 (네트워크). 계속 진행합니다"
-elif [ "$LOCAL_VER" = "$REMOTE_VER" ]; then
+elif [ -n "$LOCAL_VER" ] && ! newer "$REMOTE_VER" "$LOCAL_VER"; then
+  # 같거나 로컬이 더 높음(예: GitHub raw 캐시가 아직 옛 버전) → 업데이트하지 않는다
   echo "✅ GQAI-vibe-planner v$LOCAL_VER (최신)"
 elif [ -n "$(git -C "$SOURCE" status --porcelain --untracked-files=no 2>/dev/null)" ]; then
   echo "⚠️  새 버전 v$REMOTE_VER 이 있지만 소스 폴더에 커밋하지 않은 변경이 있어 건너뜁니다: $SOURCE"
